@@ -1,0 +1,55 @@
+# Entornos virtuales
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Checkpoints y artefactos de entrenamiento
+checkpoints/
+checkpoints_*/
+*.pt
+*.pth
+*.ckpt
+
+# TensorBoard y logs
+runs/
+logs/
+*.log
+
+# Videos y renders Atari
+videos/
+videos_*/
+recordings/
+*.mp4
+*.avi
+*.gif
+
+# Datos generados y buffers
+data/
+replay_buffers/
+*.npy
+*.npz
+
+# Configuración local y secretos
+.env
+.env.*
+!.env.example
+
+# Sistema operativo y editores
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+

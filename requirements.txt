@@ -1,0 +1,7 @@
+gymnasium[atari,accept-rom-license]>=0.29
+ale-py>=0.8
+numpy>=1.24
+opencv-python>=4.8
+torch>=2.1
+tensorboard>=2.14
+moviepy>=1.0.3
