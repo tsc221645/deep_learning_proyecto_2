@@ -7,6 +7,7 @@ import random
 import torch
 import torch.nn.functional as F
 from torch import optim
+from torch.optim.lr_scheduler import MultiStepLR
 
 from model import DuelingCNN
 
@@ -21,6 +22,13 @@ class D3QNAgent:
         self.target.load_state_dict(self.online.state_dict())
         self.target.eval()
         self.optimizer = optim.Adam(self.online.parameters(), lr=learning_rate, eps=1.5e-4)
+        # Los hitos están expresados en steps del entorno, no en actualizaciones
+        # de gradiente. Esto mantiene el calendario correcto con train_frequency=4.
+        self.scheduler = MultiStepLR(
+            self.optimizer,
+            milestones=[4_000_000, 6_000_000],
+            gamma=0.5,
+        )
 
     @torch.no_grad()
     def act(self, state, epsilon=0.0):
@@ -30,7 +38,13 @@ class D3QNAgent:
         return int(self.online(state).argmax(1).item())
 
     def train_step(self, batch):
-        states, actions, rewards, next_states, dones, discounts = batch[:6]
+        """Ejecuta una actualización D3QN ponderada por PER.
+
+        ``weights`` corrige el sesgo introducido por el muestreo prioritario.
+        La pérdida se calcula por transición y solo después se pondera y
+        promedia, antes de llamar a ``backward``.
+        """
+        states, actions, rewards, next_states, dones, discounts, weights, indices = batch
         q = self.online(states).gather(1, actions.unsqueeze(1)).squeeze(1)
         with torch.no_grad():
             # Double DQN: online selecciona; target evalúa.
@@ -38,18 +52,21 @@ class D3QNAgent:
             next_q = self.target(next_states).gather(1, next_actions.unsqueeze(1)).squeeze(1)
             target = rewards + discounts * (1.0 - dones) * next_q
         td_error = target - q
-        loss_per_item = F.smooth_l1_loss(q, target, reduction="none")
-        weights = batch[6] if len(batch) >= 8 else torch.ones_like(loss_per_item)
-        loss = (loss_per_item * weights).mean()
+        elementwise_huber = F.smooth_l1_loss(q, target, reduction="none")
+        weighted_huber = elementwise_huber * weights
+        loss = weighted_huber.mean()
         self.optimizer.zero_grad(set_to_none=True)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(self.online.parameters(), self.grad_clip)
         self.optimizer.step()
-        indices = batch[7] if len(batch) >= 8 else None
         return float(loss.item()), float(q.detach().mean().item()), td_error.detach().abs().cpu().numpy(), indices
 
     def update_target(self):
         self.target.load_state_dict(self.online.state_dict())
+
+    def step_scheduler(self, environment_step: int):
+        """Avanza el LR scheduler usando el step global del entorno."""
+        self.scheduler.step(environment_step)
 
     def save(self, path, **metadata):
         """Guarda pesos, optimizador y estado necesario para reanudar."""
@@ -57,6 +74,7 @@ class D3QNAgent:
             "online": self.online.state_dict(),
             "target": self.target.state_dict(),
             "optimizer": self.optimizer.state_dict(),
+            "scheduler": self.scheduler.state_dict(),
             **metadata,
         }
         torch.save(checkpoint, path)
@@ -67,4 +85,6 @@ class D3QNAgent:
         self.target.load_state_dict(checkpoint.get("target", checkpoint.get("online", checkpoint)))
         if load_optimizer and "optimizer" in checkpoint:
             self.optimizer.load_state_dict(checkpoint["optimizer"])
+        if "scheduler" in checkpoint:
+            self.scheduler.load_state_dict(checkpoint["scheduler"])
         return checkpoint
