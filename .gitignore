@@ -17,6 +17,7 @@ htmlcov/
 # Checkpoints y artefactos de entrenamiento
 checkpoints/
 checkpoints_*/
+informe_proyecto.md
 *.pt
 *.pth
 *.ckpt

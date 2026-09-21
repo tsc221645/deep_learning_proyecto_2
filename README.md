@@ -88,6 +88,26 @@ python train.py \
   --log-dir runs/spaceinvaders_corrected
 ```
 
+## Versión 3.0: Rainbow Light
+
+La V3 añade una rama experimental separada en `model_v3.py`, `agent_v3.py`, `train_v3.py` y `evaluate_v3.py`. Combina `NoisyLinear` factorizada con `sigma0=0.5`, C51 con 51 átomos en `[-10, 10]`, Double DQN y agregación Dueling sobre logits distributivos. No utiliza epsilon-greedy: la exploración procede del ruido paramétrico durante entrenamiento.
+
+La proyección C51 se realiza con operaciones vectorizadas de PyTorch (`floor`, `ceil` y `scatter_add_`), sin bucles sobre el batch. La pérdida es KL por transición, ponderada por los pesos de PER. V3 utiliza `batch_size=64`, `train_frequency=4`, `target_update=80000`, `n_step=3`, `per_alpha=0.4` y el scheduler de learning rate con hitos en 4M y 6M.
+
+Los checkpoints V2 no son compatibles con V3: la salida cambia de valores Q a distribuciones de 51 átomos y las capas densas cambian a `NoisyLinear`. Para iniciar V3:
+
+```bash
+python train_v3.py --steps 10000000 --checkpoint-dir checkpoints_v3 --log-dir runs/spaceinvaders_v3
+```
+
+El entrenamiento V3 imprime cada 10,000 steps el progreso, porcentaje, velocidad en steps por segundo, tiempo transcurrido, ETA, tamaño del replay, beta, pérdida KL y learning rate. La frecuencia puede ajustarse con `--progress-interval`, por ejemplo `--progress-interval 5000`.
+
+Para evaluar V3:
+
+```bash
+python evaluate_v3.py --checkpoint checkpoints_v3/best.pt --video-dir videos/v3
+```
+
 ## Evaluación y video
 
 ```bash
@@ -95,3 +115,25 @@ python evaluate.py --checkpoint checkpoints/best.pt
 ```
 
 La evaluación ejecuta exactamente cinco episodios con epsilon 0 e intenta grabar el primero en `videos/` como MP4.
+
+## Fine-tuning V2 desde `best.pt`
+
+`finetune_v2.py` es una ejecución separada para refinar el D3QN V2 sin sobrescribir `best.pt` ni `latest.pt`. Carga únicamente los pesos del mejor modelo, crea un Adam nuevo con `lr=5e-5`, mantiene `beta=1.0`, inicializa un replay buffer vacío y realiza un warm-up de 50,000 steps con la política cargada.
+
+Después del warm-up, epsilon se reinicia a `0.05` cada 250,000 steps globales y baja linealmente a `0.01` durante los primeros 100,000 steps de cada ciclo. `CosineAnnealingWarmRestarts` usa `T_0=62,500` actualizaciones, porque `250,000 / train_frequency=4 = 62,500`. Los resultados se guardan en `finetune_latest.pt` y `finetune_best.pt` dentro de `checkpoints_finetune_v2/`.
+
+Ejemplo de ejecución:
+
+```bash
+python finetune_v2.py \
+  --checkpoint checkpoints/best.pt \
+  --steps 2000000 \
+  --warmup-steps 50000 \
+  --buffer-size 1000000 \
+  --batch-size 32 \
+  --train-frequency 4 \
+  --cycle-steps 250000 \
+  --epsilon-decay-steps 100000 \
+  --checkpoint-dir checkpoints_finetune_v2 \
+  --log-dir runs/finetune_v2
+```

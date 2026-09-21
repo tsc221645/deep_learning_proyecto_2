@@ -90,7 +90,7 @@ class ReplayBuffer:
         self.position = (i + 1) % self.capacity
         self.size = min(self.size + 1, self.capacity)
 
-    def sample(self, batch_size, beta=0.4):
+    def sample(self, batch_size, beta=0.4, float_observations=False):
         if self.size < batch_size:
             raise ValueError("No hay suficientes transiciones para el batch")
         data_indices = np.empty(batch_size, dtype=np.int64)
@@ -106,8 +106,16 @@ class ReplayBuffer:
             data_indices[j] = data_index
             priorities[j] = priority
 
-        states = torch.as_tensor(self.states[data_indices], device=self.device)
-        next_states = torch.as_tensor(self.next_states[data_indices], device=self.device)
+        if float_observations:
+            # V3: conversión y transferencia como float32 solo en el muestreo.
+            states = torch.as_tensor(self.states[data_indices], dtype=torch.float32,
+                                     device=self.device).div_(255.0)
+            next_states = torch.as_tensor(self.next_states[data_indices], dtype=torch.float32,
+                                          device=self.device).div_(255.0)
+        else:
+            # Compatibilidad V2: el modelo normaliza después del traslado.
+            states = torch.as_tensor(self.states[data_indices], device=self.device)
+            next_states = torch.as_tensor(self.next_states[data_indices], device=self.device)
         actions = torch.as_tensor(self.actions[data_indices], device=self.device)
         rewards = torch.as_tensor(self.rewards[data_indices], device=self.device)
         dones = torch.as_tensor(self.dones[data_indices], device=self.device)
