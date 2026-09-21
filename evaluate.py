@@ -2,6 +2,7 @@
 
 import argparse
 import os
+import shutil
 
 from agent import D3QNAgent
 from wrappers import make_atari_env
@@ -19,22 +20,38 @@ def main(args):
     agent.load(args.checkpoint)
     probe.close()
     env = make_atari_env(args.env, render_mode="rgb_array", episodic_life=False, clip_reward=False)
-    env = __import__("gymnasium").wrappers.RecordVideo(env, args.video_dir, episode_trigger=lambda ep: ep == 0)
+    # Se graban los cinco episodios porque el de mayor puntuación solo se
+    # conoce después de haber terminado la evaluación completa.
+    env = __import__("gymnasium").wrappers.RecordVideo(env, args.video_dir, episode_trigger=lambda ep: True)
     scores = []
     for episode in range(5):
-        obs, _ = env.reset()
+        # Semillas fijas hacen el ensayo reproducible y garantizan que el
+        # video y la evaluación en vivo usen exactamente cinco partidas.
+        obs, _ = env.reset(seed=args.seed + episode)
         done = False; score = 0.0
         while not done:
             obs, reward, terminated, truncated, _ = env.step(agent.act(obs, epsilon=0.0))
             score += reward; done = terminated or truncated
         scores.append(score)
         print(f"Episodio {episode + 1}/5: recompensa={score:.1f}")
-    print(f"Máxima recompensa en 5 episodios: {max(scores):.1f}")
+    print(f"Promedio en 5 episodios: {sum(scores) / len(scores):.1f}")
+    best_episode = int(max(range(len(scores)), key=lambda i: scores[i]))
+    best_score = scores[best_episode]
+    print(f"Máxima recompensa en 5 episodios: {best_score:.1f} (episodio {best_episode + 1})")
     env.close()
+
+    episode_video = os.path.join(args.video_dir, f"rl-video-episode-{best_episode}.mp4")
+    best_video = os.path.join(args.video_dir, "best-score-episode.mp4")
+    if os.path.exists(episode_video):
+        shutil.copy2(episode_video, best_video)
+        print(f"Video del episodio con mayor puntuación: {best_video}")
+    else:
+        print(f"No se encontró el video esperado: {episode_video}")
 
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("--checkpoint", default="checkpoints/best.pt")
+    p.add_argument("--checkpoint", default="checkpoints_v2/best_5m_800max.pt")
     p.add_argument("--env", default="ALE/SpaceInvaders-v5"); p.add_argument("--video-dir", default="videos")
-    p.add_argument("--device", default="cuda"); main(p.parse_args())
+    p.add_argument("--device", default="cuda"); p.add_argument("--seed", type=int, default=42)
+    main(p.parse_args())
